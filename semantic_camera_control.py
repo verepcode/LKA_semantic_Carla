@@ -14,6 +14,7 @@ except IndexError:
 
 import carla
 
+from KeyboardControl import KeyboardControl
 import argparse
 import logging
 import random
@@ -40,14 +41,14 @@ class CarAgent(object):
             format='%(levelname)s: %(message)s', level=logging.INFO)
 
         # Create client to carla server running in localhost and port 2000. Timeout of 2 seconds
-        client = carla.Client('localhost', 2000)
-        client.set_timeout(2.0)
+        self.client = carla.Client('localhost', 2000)
+        self.client.set_timeout(2.0)
 
         self._display = pygame.display.set_mode(
             (self.image_width*2, self.image_height),
             pygame.HWSURFACE | pygame.DOUBLEBUF)
 
-        self.world = client.get_world()  # Get the current world from the server
+        self.world = self.client.get_world()  # Get the current world from the server
         # Get the blueprint library
         self.blueprint_library = self.world.get_blueprint_library()
 
@@ -66,6 +67,7 @@ class CarAgent(object):
         # Spawn the car at the spawn location
         self.car = self.world.spawn_actor(car_blueprint, spawn_point)
         logging.info('Spawned car : ' + str(self.car))
+        self.world.player = self.car
         self.actor_list.append(self.car)  # Add car to the list of actors
 
         # Apply a controller for the car
@@ -125,25 +127,24 @@ class CarAgent(object):
 
         self.front_camera_image = None
         self.semantic_camera_image = None
-        self._clock = pygame.time.Clock()
 
     def run(self):
-        while not self.parse_key_events():
-            timestamp = self.world.wait_for_tick()
-            pygame.display.flip()
+        controller = KeyboardControl(self.world, False)
+
+        clock = pygame.time.Clock()
+        while not controller.parse_events(self.client, self.world, clock):
+            clock.tick_busy_loop(60)
+            
+            self.world.wait_for_tick()
+            
             if self.camera_surface is not None:
                 self._display.blit(self.camera_surface, (0, 0))
 
             if self.semantic_surface is not None:
                 self._display.blit(self.semantic_surface,
                                    (self.image_width, 0))
-
-    def parse_key_events(self):
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                return True
-            elif event.type == pygame.KEYUP:
-                return (event.key == pygame.K_ESCAPE) or (event.key == pygame.K_q)
+            
+            pygame.display.flip()
 
     def destroy(self):
         for actor in self.actor_list:
