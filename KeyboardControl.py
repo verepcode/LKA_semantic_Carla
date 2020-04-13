@@ -84,56 +84,12 @@ class KeyboardControl(object):
             elif event.type == pygame.KEYUP:
                 if self._is_quit_shortcut(event.key):
                     return True
-                elif event.key == K_TAB:
-                    world.camera_manager.toggle_camera()
-                elif event.key == K_c and pygame.key.get_mods() & KMOD_SHIFT:
-                    world.next_weather(reverse=True)
-                elif event.key == K_c:
-                    world.next_weather()
-                elif event.key == K_g:
-                    world.toggle_radar()
-                elif event.key == K_BACKQUOTE:
-                    world.camera_manager.next_sensor()
-                elif event.key == K_n:
-                    world.camera_manager.next_sensor()
-                elif event.key > K_0 and event.key <= K_9:
-                    world.camera_manager.set_sensor(event.key - 1 - K_0)
                 if isinstance(self._control, carla.VehicleControl):
                     if event.key == K_q:
                         self._control.gear = 1 if self._control.reverse else -1
-                    elif event.key == K_m:
-                        self._control.manual_gear_shift = not self._control.manual_gear_shift
-                        self._control.gear = world.player.get_control().gear
-                    elif self._control.manual_gear_shift and event.key == K_COMMA:
-                        self._control.gear = max(-1, self._control.gear - 1)
-                    elif self._control.manual_gear_shift and event.key == K_PERIOD:
-                        self._control.gear = self._control.gear + 1
                     elif event.key == K_p and not pygame.key.get_mods() & KMOD_CTRL:
                         self._autopilot_enabled = not self._autopilot_enabled
                         world.player.set_autopilot(self._autopilot_enabled)
-                    elif event.key == K_l and pygame.key.get_mods() & KMOD_CTRL:
-                        current_lights ^= carla.VehicleLightState.Special1
-                    elif event.key == K_l and pygame.key.get_mods() & KMOD_SHIFT:
-                        current_lights ^= carla.VehicleLightState.HighBeam
-                    elif event.key == K_l:
-                        # Use 'L' key to switch between lights:
-                        # closed -> position -> low beam -> fog
-                        if not self._lights & carla.VehicleLightState.Position:
-                            current_lights |= carla.VehicleLightState.Position
-                        else:
-                            current_lights |= carla.VehicleLightState.LowBeam
-                        if self._lights & carla.VehicleLightState.LowBeam:
-                            current_lights |= carla.VehicleLightState.Fog
-                        if self._lights & carla.VehicleLightState.Fog:
-                            current_lights ^= carla.VehicleLightState.Position
-                            current_lights ^= carla.VehicleLightState.LowBeam
-                            current_lights ^= carla.VehicleLightState.Fog
-                    elif event.key == K_i:
-                        current_lights ^= carla.VehicleLightState.Interior
-                    elif event.key == K_z:
-                        current_lights ^= carla.VehicleLightState.LeftBlinker
-                    elif event.key == K_x:
-                        current_lights ^= carla.VehicleLightState.RightBlinker
 
         if not self._autopilot_enabled:
             if isinstance(self._control, carla.VehicleControl):
