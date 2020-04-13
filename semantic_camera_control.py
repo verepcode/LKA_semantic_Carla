@@ -20,10 +20,18 @@ import argparse
 import logging
 import random
 import pygame
+import time
 import cv2
+
+from smv2_drive import DriveController
 
 
 class CarAgent(object):
+    _isMotorConnected = False
+    _positionFeedback = 0
+    _feedbackAngle = 0
+    _motorSteering = 0
+
     def __init__(self):
         self.image_height = 480
         self.image_width = 640
@@ -34,34 +42,19 @@ class CarAgent(object):
         pygame.init()
 
         # Original
-        # self.pixels = {0: [0, 0, 0],        # None
-        #                1: [128, 64, 0],     # Buildings
-        #                2: [128, 0, 64],     # Fences
-        #                3: [128, 256, 64],   # Other
-        #                4: [128, 64, 256],   # Pedestrians
-        #                5: [64, 192, 256],   # Poles
-        #                6: [192, 256, 256],  # RoadLines
-        #                7: [192, 64, 128],   # Roads
-        #                8: [64, 256, 128],   # Sidewalks
-        #                9: [0, 128, 192],    # Vegetation
-        #                10: [0, 256, 64],    # Vehicles
-        #                11: [256, 128, 64],  # Walls
-        #                12: [128, 192, 64]   # TrafficSigns
-        #                }
-
         self.pixels = {0: [0, 0, 0],        # None
-                       1: [0, 0, 0],     # Buildings
-                       2: [0, 0, 0],     # Fences
-                       3: [0, 0, 0],   # Other
-                       4: [0, 0, 0],   # Pedestrians
-                       5: [0, 0, 0],   # Poles
-                       6: [0, 0, 255],  # RoadLines
-                       7: [255, 255, 255],   # Roads
-                       8: [0, 0, 0],   # Sidewalks
-                       9: [0, 0, 0],    # Vegetation
-                       10: [0, 0, 0],    # Vehicles
-                       11: [0, 0, 0],  # Walls
-                       12: [0, 0, 0]   # TrafficSigns
+                       1: [128, 64, 0],     # Buildings
+                       2: [128, 0, 64],     # Fences
+                       3: [128, 256, 64],   # Other
+                       4: [128, 64, 256],   # Pedestrians
+                       5: [64, 192, 256],   # Poles
+                       6: [192, 256, 256],  # RoadLines
+                       7: [192, 64, 128],   # Roads
+                       8: [64, 256, 128],   # Sidewalks
+                       9: [0, 128, 192],    # Vegetation
+                       10: [0, 256, 64],    # Vehicles
+                       11: [256, 128, 64],  # Walls
+                       12: [128, 192, 64]   # TrafficSigns
                        }
 
         self.actor_list = []  # List of actors spawned in the environment
@@ -77,6 +70,43 @@ class CarAgent(object):
         self._display = pygame.display.set_mode(
             (self.image_width*2, self.image_height),
             pygame.HWSURFACE | pygame.DOUBLEBUF)
+
+        ###########################################################
+
+        self._controller = DriveController("/dev/ttyUSB0", 1, False)
+
+        ##### Register Callbacks #####
+        self._controller.logCallback = self._logCallback
+        self._controller.errorCallback = self._errorCallback
+        self._controller.readingCallback = self._readingCallback
+        self._controller.connectedCallback = self._connectedCallback
+
+        # Connect and start
+        self._controller.connect()
+
+        print("WAITING TO CONNECT......")
+        while True:
+            time.sleep(0.2)
+            if self._isMotorConnected:
+                print("Connected !")
+                break
+
+        # Motor is connected
+
+        # # turn motor to home
+        self._goToAngle(0, 1000)
+
+        self._controller.setAddedConstantTorque(150)
+
+        while True:
+            time.sleep(0.5)  # keep this high to debounce
+            if abs(self._feedbackAngle) < 5:
+                print("Motor to Zero!")
+                break
+
+        time.sleep(1)
+
+        ###############################################
 
         self.world = self.client.get_world()  # Get the current world from the server
         # Get the blueprint library
@@ -105,8 +135,10 @@ class CarAgent(object):
 
         # Creating a blueprint for the camera and changing the size of the image captured by the camera
         camera_blueprint = self.blueprint_library.find('sensor.camera.rgb')
-        camera_blueprint.set_attribute('image_size_x', str(self.image_width))
-        camera_blueprint.set_attribute('image_size_y', str(self.image_height))
+        camera_blueprint.set_attribute(
+            'image_size_x', str(self.image_width))
+        camera_blueprint.set_attribute(
+            'image_size_y', str(self.image_height))
         # Change the field of view of the camera
         camera_blueprint.set_attribute('fov', '110')
 
@@ -179,11 +211,23 @@ class CarAgent(object):
                 cv2.imshow("V:", self.semantic_camera_image)
                 cv2.waitKey(1)
 
-    def destroy(self):
+            self._goToAngle(self._motorSteering, 1000, 3, 0.05)
+
+    def __del__(self):
         for actor in self.actor_list:
             logging.info('Destroying actor : ' + str(actor))
             actor.destroy()  # Delete all the actors before shutting down
         pygame.quit()
+
+        ######################
+        # nullptr ALL CALLBACKS before calling desctructor
+        # Very very important to mitigate deadlock while exiting
+        ######################
+        self._controller.logCallback = None
+        self._controller.errorCallback = None
+        self._controller.readingCallback = None
+        self._controller.connectedCallback = None
+
         print('All cleaned up... Shutting down....')
 
     def process_image(self, image):
@@ -197,20 +241,25 @@ class CarAgent(object):
     def process_semantic_image(self, image):
         i = np.array(image.raw_data)
         i = i.reshape((self.image_height, self.image_width, 4))
-        labels = i[:, :, :3]
+        labels = np.copy(i[:, :, :3])
 
         for key in self.pixels.keys():
             value = self.pixels[key]
             labels[labels[:, :, 2] == key] = value
-        labels = np.asarray(labels)
 
         self.semantic_surface = pygame.surfarray.make_surface(
             labels.swapaxes(0, 1))
 
+        labels = np.copy(i[:, :, :3])
+        labels[labels[:, :, 2] == 7] = [255, 255, 255]
+
+        ###################################################
+
         # 1, Undistort image
         # Camera distortion is ignored
 
-        img = labels
+        img = np.asarray(labels)
+
         # 2,Apply Perspective transform
         warped = self._lane_detection.perspective_transform(img)
 
@@ -222,6 +271,8 @@ class CarAgent(object):
 
         # # 5,Draw final image
         # self.result_image = self._lane_detection.unwarp_found_region(img, lane_image)
+
+        ###################################################
 
         # Call Canny Edge Detection here.
         cannyed_image = cv2.Canny(warped, 100, 200)
@@ -243,7 +294,7 @@ class CarAgent(object):
                 for x1, y1, x2, y2 in line:
                     angle += np.arctan2(y2 - y1, x2 - x1)
                     count += 1
-                    
+
                     cv2.line(warped, (x1, y1), (x2, y2),
                              color=[0, 0, 255], thickness=3)
 
@@ -257,7 +308,44 @@ class CarAgent(object):
             else:
                 print("front")
 
+                heading_slope = 0
+
+            self._motorSteering = heading_slope
+
+        # Uncomment this to see the laterial controller image
         # self.semantic_camera_image = warped
+
+    def _goToAngle(self, pos, max_torque, kp, kd):
+        self._controller.setAbsoluteSetpoint(
+            int((pos/360)*10000), max_torque, kp, kd)
+
+    ################# Event Callbacks #################
+
+    def _logCallback(self, obj):
+        # logType
+        # message
+        print("LOG>", obj.message)
+        pass
+
+    def _connectedCallback(self, obj):
+        # isConnected
+        print("CON>", obj.isConnected)
+        self._isMotorConnected = obj.isConnected
+
+    def _errorCallback(self, obj):
+        # bool trackingError,
+        # bool driveFault
+        print("Error>", obj.trackingError, obj.driveFault)
+
+    def _readingCallback(self, obj):
+        # int posSetpoint
+        # int posFeedback
+        # int velSetpoint
+        # print("Reading >", obj.posSetpoint, obj.posFeedback, obj.velSetpoint)
+
+        self._positionFeedback = obj.posFeedback
+        self._feedbackAngle = format((obj.posFeedback / 10000)*360, '.2f')
+        # print("Reading>", self._positionFeedback, self._feedbackAngle)
 
 
 if __name__ == "__main__":

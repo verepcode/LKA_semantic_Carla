@@ -1,0 +1,39 @@
+{
+    "editor.renderWhitespace": "all",
+    "editor.renderControlCharacters": true,
+    "editor.renderLineHighlight": "all",
+    "editor.tabSize": 4,
+    "editor.formatOnSave": true,
+    "editor.wordWrapColumn": 80,
+    "git.enableCommitSigning": true,
+    "python.pythonPath": ".env/bin/python",
+    "C_Cpp.autoAddFileAssociations": false,
+    "psi-header.lang-config": [
+        {
+            "begin": "/**",
+            "language": "cpp",
+            "forceToTop": true,
+            "rootDirFileName": "setup.py"
+        },
+        {
+            "language": "py",
+            "forceToTop": true,
+            "rootDirFileName": "setup.py"
+        }
+    ],
+    "psi-header.templates": [
+        {
+            "language": "*",
+            "template": [
+                "Project: Simple MotionV2 based drive controller for Carla",
+                "",
+                "@file <<<filerelativepath>>>",
+                "",
+                "@author Prajankya Sonar - <prajankya@gmail.com>",
+                "",
+                "MIT License",
+                "Copyright (c) <<year>> Prajankya Sonar"
+            ]
+        }
+    ],
+}
