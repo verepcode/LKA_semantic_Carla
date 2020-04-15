@@ -456,8 +456,8 @@ void DriveController::DoUpdateCycle() {
     nTorqueSetpoint =
         ClipNumber(nTorqueSetpoint, -m_MaxTorqueLimit, m_MaxTorqueLimit);
 
-    LOG_S(INFO) << "Torque:" << nTorqueSetpoint << ":" << m_nPositionFeedback
-                << ":" << m_nAbsolutePosSetpoint << ":" << delta_error;
+    // LOG_S(INFO) << "Torque:" << nTorqueSetpoint << ":" << m_nPositionFeedback
+    //             << ":" << m_nAbsolutePosSetpoint << ":" << delta_error;
 
     // ===================== Building write data ======================
 

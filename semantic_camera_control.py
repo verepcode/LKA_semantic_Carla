@@ -94,13 +94,15 @@ class CarAgent(object):
         # Motor is connected
 
         # # turn motor to home
+        self._controller.setAddedConstantTorque(350)
         self._goToAngle(0, 1000)
 
         self._controller.setAddedConstantTorque(150)
 
         while True:
             time.sleep(0.5)  # keep this high to debounce
-            if abs(self._feedbackAngle) < 5:
+            print(self._feedbackAngle)
+            if abs(self._feedbackAngle) < 20:
                 print("Motor to Zero!")
                 break
 
@@ -211,9 +213,10 @@ class CarAgent(object):
                 cv2.imshow("V:", self.semantic_camera_image)
                 cv2.waitKey(1)
 
-            self._goToAngle(self._motorSteering, 1000, 3, 0.05)
+            print(self._motorSteering * -20)
+            self._goToAngle(self._motorSteering * -20, 1000, 3, 0.05)
 
-    def __del__(self):
+    def destroy(self):
         for actor in self.actor_list:
             logging.info('Destroying actor : ' + str(actor))
             actor.destroy()  # Delete all the actors before shutting down
@@ -300,14 +303,7 @@ class CarAgent(object):
 
             heading_slope = angle / count
 
-            if abs(heading_slope) > 0.5:
-                if heading_slope > 0:
-                    print("left")
-                else:
-                    print("right")
-            else:
-                print("front")
-
+            if abs(heading_slope) < 1:
                 heading_slope = 0
 
             self._motorSteering = heading_slope
@@ -315,9 +311,9 @@ class CarAgent(object):
         # Uncomment this to see the laterial controller image
         # self.semantic_camera_image = warped
 
-    def _goToAngle(self, pos, max_torque, kp, kd):
+    def _goToAngle(self, pos, max_torque=2000, Kp=1.6, Kd=0.1):
         self._controller.setAbsoluteSetpoint(
-            int((pos/360)*10000), max_torque, kp, kd)
+            int((pos/360)*10000), max_torque, Kp, Kd)
 
     ################# Event Callbacks #################
 
@@ -340,11 +336,14 @@ class CarAgent(object):
     def _readingCallback(self, obj):
         # int posSetpoint
         # int posFeedback
-        # int velSetpoint
-        # print("Reading >", obj.posSetpoint, obj.posFeedback, obj.velSetpoint)
+        # int torqueSetpoint
+        # print("Reading >", obj.posSetpoint,
+        #       obj.posFeedback, obj.torqueSetpoint)
 
         self._positionFeedback = obj.posFeedback
-        self._feedbackAngle = format((obj.posFeedback / 10000)*360, '.2f')
+        self._feedbackAngle = (obj.posFeedback / 10000)*360
+        self._feedbackSteer = (self._feedbackAngle / 360)*2
+
         # print("Reading>", self._positionFeedback, self._feedbackAngle)
 
 
