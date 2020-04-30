@@ -221,7 +221,7 @@ class CarAgent(object):
             control.reverse = False
             control.manual_gear_shift = False
 
-            # TODO: to be taken from lateral controller
+            # TODO: to be taken from longitudinal controller
             control.throttle = 0.6
             control.brake = 0.0
 
