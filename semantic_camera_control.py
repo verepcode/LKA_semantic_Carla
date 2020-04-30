@@ -23,7 +23,10 @@ import pygame
 import time
 import cv2
 
-from smv2_drive import DriveController
+HARDWARE = False
+
+if HARDWARE:
+    from smv2_drive import DriveController
 
 
 class CarAgent(object):
@@ -72,41 +75,41 @@ class CarAgent(object):
             pygame.HWSURFACE | pygame.DOUBLEBUF)
 
         ###########################################################
+        if HARDWARE:
+            self._controller = DriveController("/dev/ttyUSB0", 1, False)
 
-        self._controller = DriveController("/dev/ttyUSB0", 1, False)
+            ##### Register Callbacks #####
+            self._controller.logCallback = self._logCallback
+            self._controller.errorCallback = self._errorCallback
+            self._controller.readingCallback = self._readingCallback
+            self._controller.connectedCallback = self._connectedCallback
 
-        ##### Register Callbacks #####
-        self._controller.logCallback = self._logCallback
-        self._controller.errorCallback = self._errorCallback
-        self._controller.readingCallback = self._readingCallback
-        self._controller.connectedCallback = self._connectedCallback
+            # Connect and start
+            self._controller.connect()
 
-        # Connect and start
-        self._controller.connect()
+            print("WAITING TO CONNECT......")
+            while True:
+                time.sleep(0.2)
+                if self._isMotorConnected:
+                    print("Connected !")
+                    break
 
-        print("WAITING TO CONNECT......")
-        while True:
-            time.sleep(0.2)
-            if self._isMotorConnected:
-                print("Connected !")
-                break
+            # Motor is connected
 
-        # Motor is connected
+            # # turn motor to home
+            self._controller.setAddedConstantTorque(350)
+            self._goToAngle(0, 1000)
 
-        # # turn motor to home
-        self._controller.setAddedConstantTorque(350)
-        self._goToAngle(0, 1000)
+            self._controller.setAddedConstantTorque(150)
 
-        self._controller.setAddedConstantTorque(150)
+            while True:
+                time.sleep(0.5)  # keep this high to debounce
+                print(self._feedbackAngle)
+                if abs(self._feedbackAngle) < 20:
+                    print("Motor to Zero!")
+                    break
 
-        while True:
-            time.sleep(0.5)  # keep this high to debounce
-            print(self._feedbackAngle)
-            if abs(self._feedbackAngle) < 20:
-                print("Motor to Zero!")
-                break
-
-        time.sleep(1)
+            time.sleep(1)
 
         ###############################################
 
@@ -210,11 +213,27 @@ class CarAgent(object):
                                    (self.image_width, 0))
 
             if self.semantic_camera_image is not None:
-                cv2.imshow("V:", self.semantic_camera_image)
+                cv2.imshow("CV:", self.semantic_camera_image)
                 cv2.waitKey(1)
 
-            print(self._motorSteering * -20)
-            self._goToAngle(self._motorSteering * -20, 1000, 3, 0.05)
+            control = carla.VehicleControl()
+            control.hand_brake = False
+            control.reverse = False
+            control.manual_gear_shift = False
+
+            # TODO: to be taken from lateral controller
+            control.throttle = 0.6
+            control.brake = 0.0
+
+            # TODO: to be taken from Stanley controller
+            control.steer = -self._motorSteering / 5
+
+            print(control)
+
+            self.car.apply_control(control)
+
+            if HARDWARE:
+                self._goToAngle(self._motorSteering * -20, 1000, 3, 0.05)
 
     def destroy(self):
         for actor in self.actor_list:
@@ -226,10 +245,11 @@ class CarAgent(object):
         # nullptr ALL CALLBACKS before calling desctructor
         # Very very important to mitigate deadlock while exiting
         ######################
-        self._controller.logCallback = None
-        self._controller.errorCallback = None
-        self._controller.readingCallback = None
-        self._controller.connectedCallback = None
+        if HARDWARE:
+            self._controller.logCallback = None
+            self._controller.errorCallback = None
+            self._controller.readingCallback = None
+            self._controller.connectedCallback = None
 
         print('All cleaned up... Shutting down....')
 
@@ -312,8 +332,9 @@ class CarAgent(object):
         # self.semantic_camera_image = warped
 
     def _goToAngle(self, pos, max_torque=2000, Kp=1.6, Kd=0.1):
-        self._controller.setAbsoluteSetpoint(
-            int((pos/360)*10000), max_torque, Kp, Kd)
+        if HARDWARE:
+            self._controller.setAbsoluteSetpoint(
+                int((pos/360)*10000), max_torque, Kp, Kd)
 
     ################# Event Callbacks #################
 
