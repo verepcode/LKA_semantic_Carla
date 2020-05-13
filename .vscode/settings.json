@@ -3,7 +3,6 @@
     "editor.renderControlCharacters": true,
     "editor.renderLineHighlight": "all",
     "editor.tabSize": 4,
-    "editor.formatOnSave": true,
     "editor.wordWrapColumn": 80,
     "git.enableCommitSigning": true,
     "python.pythonPath": ".env/bin/python3"

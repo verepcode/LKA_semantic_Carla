@@ -1,17 +1,16 @@
-#!/usr/bin/env python
-import glob
-import os
-import sys
-import numpy as np
+CARLA_FOLDER_PATH = '/opt/carla/PythonAPI'
 
 try:
-    sys.path.append(glob.glob('../carla/dist/carla-*%d.%d-%s.egg' % (
-        sys.version_info.major,
-        sys.version_info.minor,
+    import glob
+    import os
+    import sys
+    sys.path.append(glob.glob(CARLA_FOLDER_PATH+'/carla/dist/carla-*3.5-%s.egg' % (
         'win-amd64' if os.name == 'nt' else 'linux-x86_64'))[0])
 except IndexError:
     pass
 
+
+import numpy as np
 import carla
 
 from KeyboardControl import KeyboardControl
@@ -20,6 +19,7 @@ import argparse
 import logging
 import random
 import pygame
+import math
 import time
 import cv2
 
@@ -34,6 +34,7 @@ class CarAgent(object):
     _positionFeedback = 0
     _feedbackAngle = 0
     _motorSteering = 0
+    _cum_longitudinal_error = 0
 
     def __init__(self):
         self.image_height = 480
@@ -41,6 +42,15 @@ class CarAgent(object):
 
         self.camera_surface = None
         self.semantic_surface = None
+
+        # Set target velocity
+        self.target_velocity = 10
+
+        # Initialize errors in lateral and longitudinal controller
+        self.previous_longitudinal_error = 0.0
+        self.previous_lateral_error = 0.0
+        self.cum_longitudinal_error = 0.0
+        self.cum_lateral_error = 0.0
 
         pygame.init()
 
@@ -124,8 +134,8 @@ class CarAgent(object):
         self.world_map = self.world.get_map()  # Get the current map in the environment
         # Get the list of possible spawn points for the map
         spawn_points = self.world_map.get_spawn_points()
-        # Get a random spawn point from the list of spawn points
-        spawn_point = random.choice(spawn_points)
+        
+        spawn_point = spawn_points[5]
 
         logging.info('Spawn point : ' + str(spawn_point))
 
@@ -217,18 +227,16 @@ class CarAgent(object):
                 cv2.waitKey(1)
 
             control = carla.VehicleControl()
+            control.manual_gear_shift = False
             control.hand_brake = False
             control.reverse = False
-            control.manual_gear_shift = False
-
-            # TODO: to be taken from longitudinal controller
-            control.throttle = 0.6
             control.brake = 0.0
-
-            # TODO: to be taken from Stanley controller
-            control.steer = -self._motorSteering / 5
-
-            print(control)
+            
+            timestamp = self.world.wait_for_tick()
+            
+            control.throttle = self.longitudinal_control(timestamp.delta_seconds)
+            
+            control.steer = self.stanley_control(-self._motorSteering, timestamp.delta_seconds)
 
             self.car.apply_control(control)
 
@@ -252,6 +260,67 @@ class CarAgent(object):
             self._controller.connectedCallback = None
 
         print('All cleaned up... Shutting down....')
+
+
+    def stanley_control(self, steering, delta_t):
+
+        # Get the x, y coordinate of the car and the yaw
+        transform = self.car.get_transform()
+        x, y = transform.location.x, transform.location.y
+        yaw = transform.rotation.yaw
+
+        L = 1.0
+        xr = x - np.cos(yaw) * 1.5
+        yr = y + np.cos(yaw) * 1.5
+
+        velocity = self.car.get_velocity()
+        v = 3.6 * math.sqrt(velocity.x ** 2 + velocity.y ** 2 + velocity.z ** 2)
+
+        kpp = 0.8
+        ld_min = 8.5
+        ld = max(kpp * v, ld_min)
+        min_err = float("inf")
+        waypoint_idx = -1
+        min_dist = float("inf")
+
+        waypoint_x = steering - ld_min
+        waypoint_y = steering + ld_min
+        
+        min_dist = np.linalg.norm(np.array([
+            waypoint_x - xr,
+            waypoint_y - yr]))
+
+        a_hat = np.arctan2(waypoint_y - yr, waypoint_x - xr)
+        alpha = a_hat - yaw
+
+        # Change the steer output with the lateral controller. 
+        steer_output = np.arctan2(2 * L * np.sin(alpha), min_dist)
+        return np.clip(steer_output, -1.0, 1.0)
+
+    def longitudinal_control(self, delta_t):
+        """ Apply PID for longitudinal control of the car
+        """
+        Kp = 0.2
+        Ki = 0.05
+        Kd = 0.01
+        # Get velocity of car
+        velocity = self.car.get_velocity() 
+
+        # Get speed in kmph
+        speed = 3.6 * math.sqrt(velocity.x ** 2 + velocity.y ** 2 + velocity.z ** 2)
+
+        # Compute error
+        error = self.target_velocity - speed
+        self.cum_longitudinal_error += error
+
+        # Compute torque
+        torque = Kp * error + Ki * self.cum_longitudinal_error * delta_t + Kd * (error - self.previous_longitudinal_error) / delta_t
+
+        # Record error
+        self.previous_longitudinal_error = error
+
+        # Clip the torque and return
+        return np.clip(torque, 0.0, 1.0)
 
     def process_image(self, image):
         i = np.array(image.raw_data)  # Raw data from the image
